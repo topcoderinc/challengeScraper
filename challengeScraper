@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+const fetch = require('isomorphic-fetch');
+const Promise = require('bluebird');
+const fs = require('fs');
+const url = require('url');
+
+function fetchTCEndpoint(endpoint) {
+  return fetch(endpoint)
+    .then(res => {
+      if (!(200 <= res.status && res.status < 300)) {
+        throw new Error('server response error status:' + res.status);
+      }
+      return res;
+    })
+    .then(res => res.json())
+    .then(res => {
+      if (!res.result.success) {
+        throw new Error(res.result.content);
+      }
+      return res.result.content;
+    });
+}
+
+function getDetailEndpoint(endpoint) {
+  let parsedUrl = url.parse(endpoint);
+  delete parsedUrl.search;
+  delete parsedUrl.query;
+  delete parsedUrl.hash;
+  let detailEndpoint = url.format(parsedUrl);
+  if (!/\/$/.test(detailEndpoint)) {
+    detailEndpoint += '/';
+  }
+  return detailEndpoint;
+}
+
+function main() {
+  if (process.argv.length !== 5){
+    console.log('Usage: challengeScraper <rate_limit_in_second>  <actual_endpoint>  <output_filename>');
+    console.log('  Sample: challengeScraper 5  https://api.topcoder.com/v3/challenges/?limit=10  output.txt');
+    return
+  }
+  let [ _1, _2, rateLimit, endpoint, outputFile ] = process.argv;
+  let detailEndpoint = getDetailEndpoint(endpoint);
+  fetchTCEndpoint(endpoint)
+    .then(challengeList => {
+      let nextFetchTime = Date.now();
+      return Promise.mapSeries(challengeList, challenge => {
+        return Promise.delay(nextFetchTime - Date.now())
+          .then(() => {
+            nextFetchTime = Date.now() + rateLimit * 1000;
+            console.log(`Fetching challenge detail ${challenge.id} ...`);
+            return fetchTCEndpoint(detailEndpoint + challenge.id)
+          })
+          .then(details => {
+            console.log(`Finish fetching challenge detail ${challenge.id}.`);
+            return Object.assign({}, challenge, { details })
+          })
+          .catch(e => {
+            console.error('Fail to fetch challenge detail for id:' + challenge.id);
+            console.error(e);
+            return challenge
+          })
+      })
+    })
+    .then(challengeDetailList => {
+      fs.writeFileSync(outputFile, JSON.stringify(challengeDetailList));
+    })
+    .catch(e => {
+      console.error(e);
+    });
+}
+
+main();
