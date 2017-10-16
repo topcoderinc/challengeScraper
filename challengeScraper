@@ -33,15 +33,11 @@ function getDetailEndpoint(endpoint) {
   return detailEndpoint;
 }
 
-function main() {
-  if (process.argv.length !== 5){
-    console.log('Usage: challengeScraper <rate_limit_in_second>  <actual_endpoint>  <output_filename>');
-    console.log('  Sample: challengeScraper 5  https://api.topcoder.com/v3/challenges/?limit=10  output.txt');
-    return
-  }
-  let [ _1, _2, rateLimit, endpoint, outputFile ] = process.argv;
+
+function fetchDetails( endpoint, rateLimit ) {
   let detailEndpoint = getDetailEndpoint(endpoint);
-  fetchTCEndpoint(endpoint)
+  console.log("Fetching Url ",endpoint);
+  return fetchTCEndpoint(endpoint)
     .then(challengeList => {
       let nextFetchTime = Date.now();
       return Promise.mapSeries(challengeList, challenge => {
@@ -63,11 +59,51 @@ function main() {
       })
     })
     .then(challengeDetailList => {
-      fs.writeFileSync(outputFile, JSON.stringify(challengeDetailList));
+      return challengeDetailList;
+      //console.log(challengeDetailList);
+      //fs.writeFileSync(outputFile, JSON.stringify(challengeDetailList));
     })
     .catch(e => {
       console.error(e);
     });
+}
+
+function main() {
+  if (process.argv.length < 5 || process.argv.length > 7){
+    console.log('Usage: challengeScraper <rate_limit_in_second>  <actual_endpoint>  <output_filename> <optional-starting-offsest> <optional-ending-offset>');
+    console.log('  Sample: challengeScraper 5  https://api.topcoder.com/v3/challenges/?limit=10  output.txt 1 2');
+    return
+  }
+  let [ _1, _2, rateLimit, endpoint, outputFile, offsetStart, offsetEnd] = process.argv;
+  offsetStart = parseInt(offsetStart || '0', 10);
+  offsetEnd = offsetEnd || offsetStart;
+  offsetEnd = parseInt(offsetEnd || '0', 10);
+  endpoint = endpoint.replace(/offset=\d*/i, '');
+  endpoint = endpoint.replace(/&&/i,'&');
+  endpoint = endpoint.replace(/&$/, '');
+  console.log(endpoint);
+  var offsetList = []
+  for(let offset = offsetStart; offset <= offsetEnd; offset+=1){
+    console.log(offset);
+    offsetList.push(offset);
+  }
+
+  Promise.mapSeries(offsetList, offset => {
+    return fetchDetails(`${endpoint}&offset=${offset}`,rateLimit)
+    .then(challengeList => {
+      return challengeList;
+    });
+  })
+  .then( challengeResult => {
+    let challengeList = [];
+    challengeResult.forEach( value => {
+      challengeList.push(...value);
+    });
+    fs.writeFileSync(outputFile, JSON.stringify(challengeList));
+  })
+  .catch(e => {
+    console.error(e);
+  });
 }
 
 main();
